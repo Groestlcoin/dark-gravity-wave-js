@@ -1,78 +1,94 @@
-'use strict';
+/* eslint new-cap: 0 */
+const u256 = require('./lib/u256');
 
-var u256 = require("./lib/u256");
+const maxBlocks = 24;
+const maxTargetMainnet = 0x1e0ffff0;
+const maxTargetRegtest = 0x207fffff;
 
-module.exports.darkGravityWaveTargetWithBlocks = function(blocks, blockTime) {
-    /* current difficulty formula, dash - based on DarkGravity v3, original work done by evan duffield, modified for javascript */
-    blocks = blocks.slice();
-    var previousBlock = blocks.pop();
+// Dash blocktime: 2.5 minutes
+const powTargetSpacing = 2.5 * 60;
 
-    if (!blockTime) blockTime = 2.5; //Dash default
-
-    var nActualTimespan = 0;
-    var lastBlockTime = 0;
-    var blockCount = 0;
-    var sumTargets = new u256();
-
-    if (previousBlock.height == 0 || previousBlock.height < 24) {
-        // This is the first block or the height is < PastBlocksMin
-        // Return minimal required work. (1e0ffff0)
-        return 0x1e0ffff0;
-    }
-
-    var currentBlock = previousBlock;
-    // loop over the past n blocks, where n == PastBlocksMax
-    for (blockCount = 1; currentBlock && currentBlock.height > 0 && blockCount <= 24; blockCount++) {
-
-        // Calculate average difficulty based on the blocks we iterate over in this for loop
-        if (blockCount <= 24) {
-            var currentTarget = new u256();
-            currentTarget.setCompact(currentBlock.target);
-            if (blockCount === 1) {
-                sumTargets = currentTarget.plus(currentTarget);
-            }
-            else {
-                sumTargets.add(currentTarget);
-            }
-        }
-
-        // If this is the second iteration (LastBlockTime was set)
-        if (lastBlockTime > 0) {
-            // Calculate time difference between previous block and current block
-            var currentBlockTime = currentBlock.timestamp;
-            var diff = ((lastBlockTime) - (currentBlockTime));
-            // Increment the actual timespan
-            nActualTimespan += diff;
-        }
-        // Set lastBlockTime to the block time for the block in current iteration
-        lastBlockTime = currentBlock.timestamp;
-
-        currentBlock = blocks.pop();
-    }
-    // darkTarget is the difficulty
-    var darkTarget = sumTargets.divide(blockCount);
-
-    // nTargetTimespan is the time that the CountBlocks should have taken to be generated.
-    var nTargetTimespan = (blockCount - 1) * 60 * blockTime;
-    // Limit the re-adjustment to 3x or 0.33x
-    // We don't want to increase/decrease diff too much.
-    if (nActualTimespan < nTargetTimespan / 3.0)
-        nActualTimespan = nTargetTimespan / 3.0;
-    if (nActualTimespan > nTargetTimespan * 3.0)
-        nActualTimespan = nTargetTimespan * 3.0;
-
-    // Calculate the new difficulty based on actual and target timespan.
-    var wew = darkTarget.multiplyWithInteger(Math.floor(nActualTimespan));
-    var aas = wew.divide(nTargetTimespan);
-    darkTarget = darkTarget.multiplyWithInteger(Math.floor(nActualTimespan)).divide(nTargetTimespan);
-
-    var compact = darkTarget.getCompact();
-
-    // If calculated difficulty is lower than the minimal diff, set the new difficulty to be the minimal diff.
-    if ((compact >>> 1) > 0xF07FFF8) {
-        compact = 0x1e0ffff0;
-    }
-
-    // Return the new diff.
-    return compact;
+function getDarkTarget(blocks) {
+  const blocksU256 = blocks.map((b) => {
+    const target = new u256();
+    target.setCompact(b.target);
+    return target;
+  });
+  const averageTarget = blocksU256.reduce((sum, b) => sum.add(b), blocksU256[0]);
+  return averageTarget.divide(blocks.length + 1);
 }
+
+const getNetworkParams = (network) => {
+  switch (network) {
+    case 'mainnet':
+      return { maxTarget: maxTargetMainnet, allowMinDifficultyBlocks: false };
+    case 'livenet':
+      return { maxTarget: maxTargetMainnet, allowMinDifficultyBlocks: false };
+    case 'testnet':
+      return { maxTarget: maxTargetMainnet, allowMinDifficultyBlocks: true };
+    case 'devnet':
+      return { maxTarget: maxTargetRegtest, allowMinDifficultyBlocks: true };
+    case 'regtest':
+      return { maxTarget: maxTargetRegtest, allowMinDifficultyBlocks: true };
+    default:
+      return { maxTarget: maxTargetMainnet, allowMinDifficultyBlocks: false };
+  }
+};
+
+/**
+* @param {Array} allHeaders - An array of blocks having target and timestamp property
+* @param {object} newHeader - a block header
+* @param {string} [network='mainnet'] - a block time value
+* @return {int} compact - the difficulty value
+* current difficulty formula, dash - based on DarkGravity v3
+* https://github.com/dashpay/dash/blob/master/src/pow.cpp#L186-L204 and
+* https://github.com/dashpay/dash/blob/master/src/pow.cpp#L82-L145
+* original work done by Evan Duffield, modified for javascript
+*/
+function getTarget(allHeaders, newHeader, network = 'mainnet') {
+  const { maxTarget, allowMinDifficultyBlocks } = getNetworkParams(network);
+
+  if (allHeaders.length < maxBlocks) return maxTarget;
+
+  const blocks = allHeaders.slice(Math.max(allHeaders.length - maxBlocks, 0)).reverse();
+
+  if (allowMinDifficultyBlocks) {
+    // most recent block is more than 2 hours old
+    if (newHeader.timestamp > blocks[0].timestamp + (2 * 60 * 60)) {
+      return maxTarget;
+    }
+    // most recent block is more than 10 minutes old
+    if (newHeader.timestamp > blocks[0].timestamp + (powTargetSpacing * 4)) {
+      let bnNew = new u256();
+      bnNew.setCompact(blocks[0].target);
+      bnNew = bnNew.multiplyWithInteger(10);
+      const uMaxTarget = new u256();
+      uMaxTarget.setCompact(maxTarget);
+      if (bnNew.getCompact() > uMaxTarget.getCompact()) {
+        bnNew = uMaxTarget;
+      }
+      return bnNew.getCompact();
+    }
+  }
+  // nTargetTimespan is the time that the blocks should have taken to be generated.
+  const nTargetTimespan = blocks.length * powTargetSpacing;
+
+  // limit the re-adjustment to 3x or 0.33x
+  const nActualTimespan = Math.min(
+    Math.max(blocks[0].timestamp - blocks[blocks.length - 1].timestamp, nTargetTimespan / 3.0),
+    nTargetTimespan * 3.0,
+  );
+
+  // Calculate the new difficulty based on actual and target timespan.
+  const darkTarget = getDarkTarget(blocks)
+    .multiplyWithInteger(nActualTimespan).divide(nTargetTimespan);
+  return Math.min(darkTarget.getCompact(), maxTarget);
+}
+
+function hasValidTarget(newHeader, previousHeaders, network = 'mainnet') {
+  return newHeader.target === getTarget(previousHeaders, newHeader, network);
+}
+
+module.exports = {
+  hasValidTarget,
+};

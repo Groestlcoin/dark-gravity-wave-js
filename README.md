@@ -1,37 +1,49 @@
-# dark-gravity-wave
+# dark-gravity-wave-js
 
-> Computes the difficulty of the dark-gravity-wave.
+[![Build Status](https://travis-ci.com/dashevo/dark-gravity-wave-js.svg?branch=master)](https://travis-ci.com/dashevo/dark-gravity-wave-js)
+[![NPM version](https://img.shields.io/npm/v/@dashevo/dark-gravity-wave.svg)](https://npmjs.org/package/@dashevo/dark-gravity-wave)
 
-## Installation
+> Dark Gravity Wave difficulty retargeting algorithm in JavaScript
 
-```
-$ npm install --save dark-gravity-wave-js
+## Install
+
+```sh
+npm install @dashevo/dark-gravity-wave
 ```
 
 ## Usage
 
 ```js
-var dgw = require('dark-gravity-wave');
+const dgw = require('@dashevo/dark-gravity-wave');
 
-dgw.darkGravityWaveTargetWithBlocks(lastInputs);
-// -> '1be4c4d3'
-
+dgw.hasValidTarget(header, previousHeaders, 'testnet');
+// -> true or false
 ```
 
 ## API
 
-### darkGravityWaveTargetWithBlocks(array)
+### hasValidTarget(header, previousHeaders, [network = 'mainnet'])
 
-#### array
+#### header
+
+Type: `object`
+
+#### previousHeaders
 
 Type: `array`
 
-Get the difficulty.  The array must contain the last 25 blocks.
+#### network
 
-### darkGravityWaveTargetWithBlocks(array,blockTime)
+Type: `string` (optional, default = 'mainnet')
 
-#### array
+Validates the target (bits) property of a block header. The 2nd argument, the array of most recent previous headers, must contain block header objects of the last 24 blocks. Arrays with length > 24 are allowed however only the latest 24 will be considered.
+The block header objects must contain *timestamp* and *target* properties (nBits field of the block header)
 
-Type: `array`, `int` (default 150)
 
-Get the difficulty for dark-gravity-wave's other than dash's 150 second block time.
+## Contributing
+
+Feel free to dive in! [Open an issue](https://github.com/dashevo/dark-gravity-wave-js/issues/new) or submit PRs.
+
+## License
+
+[MIT](LICENSE) &copy; Dash Core Group, Inc.
